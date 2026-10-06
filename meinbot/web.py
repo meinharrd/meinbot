@@ -30,6 +30,8 @@ async def search(query: str, limit: int = 8) -> list[dict]:
     try:
         rows = await asyncio.to_thread(run)
     except Exception as e:
+        if "no results" in str(e).lower():
+            return []
         raise WebError(f"search failed: {e}")
     return [{"title": r.get("title", ""), "url": r.get("href", ""), "snippet": r.get("body", "")}
             for r in rows]

@@ -50,7 +50,7 @@ class Result:
 
 # executor(tool_name, args) -> (result text, is_error)
 Executor = Callable[[str, dict], Awaitable[tuple[str, bool]]]
-MAX_TOOL_ROUNDS = 8
+MAX_TOOL_ROUNDS = 30
 
 
 class Provider:
@@ -85,7 +85,11 @@ class Provider:
                 out, is_err = await execute(call.name, call.args)
                 messages.append({"role": "tool", "tool_call_id": call.id, "name": call.name,
                                  "content": out, "is_error": is_err})
-        return Result(text or "(stopped after too many memory operations)", usage=usage)
+        # Out of steps: one last call asking for an answer from what was gathered.
+        messages.append({"role": "user", "content": "You have run out of tool steps. Do not call tools; answer "
+                         "now from what you found and say what is still unverified."})
+        res = await self.complete(system, messages, tools)
+        return Result(res.text or text or "(stopped after too many tool calls)", usage=usage)
 
 
 def _merge_same_role(msgs: list[dict]) -> list[dict]:
@@ -241,53 +245,85 @@ class ClaudeCodeProvider(Provider):
         return await self.run(system, messages, None, no_tools)
 
     async def run(self, system, messages, tools, execute) -> Result:
-        from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ResultMessage, SdkMcpTool,
-                                      TextBlock, create_sdk_mcp_server, query)
+        from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKError, ResultMessage,
+                                      SdkMcpTool, TextBlock, create_sdk_mcp_server, query)
         router = self.router
+        findings: list[str] = []          # tool results, for a wrap-up if the step limit is hit
+
         def handler(name):
             async def h(args):
                 out, is_err = await execute(name, args)
+                findings.append(f"{name} {json.dumps(args, ensure_ascii=False)}:\n{out[:2500]}")
                 return {"content": [{"type": "text", "text": out}], "isError": is_err}
             return h
 
         sdk_tools = [SdkMcpTool(t["name"], t["description"], t["parameters"], handler(t["name"]))
                      for t in tools or []]
         server = create_sdk_mcp_server(name="bot", version="1.0.0", tools=sdk_tools)
+        max_turns = self.role.extra.get("max_turns", MAX_TOOL_ROUNDS)
+
+        async def attempt(prompt: str, with_tools: bool, turns: int):
+            """One query; returns (text, result, account, hit the step limit)."""
+            tried: set[str] = set()
+            while True:
+                acct = router.pick(None, self.role.model) if router else None
+                env = router.env_for(acct) if acct else {}
+                opts = ClaudeAgentOptions(
+                    system_prompt=system, model=self.role.model, tools=[],
+                    allowed_tools=[f"mcp__bot__{t['name']}" for t in tools or []] if with_tools else [],
+                    mcp_servers={"bot": server} if with_tools else {}, setting_sources=[],
+                    cwd=str(self.cwd), env=env, permission_mode="bypassPermissions",
+                    max_turns=turns, effort=self.role.extra.get("effort"),
+                )
+                texts, result, exhausted = [], None, False
+                try:
+                    async for msg in query(prompt=prompt, options=opts):
+                        if isinstance(msg, AssistantMessage):
+                            texts.append("".join(b.text for b in msg.content if isinstance(b, TextBlock)))
+                        elif isinstance(msg, ResultMessage):
+                            result = msg
+                except ClaudeSDKError as e:
+                    if "maximum number of turns" not in str(e):
+                        raise
+                    exhausted = True
+                if result is not None and result.subtype == "error_max_turns":
+                    exhausted = True
+                text = (result.result if result and result.result else (texts[-1] if texts else "")).strip()
+                failed = result is None or result.is_error or (result.subtype or "success") != "success"
+                hit = router.classify_limit(text, self.role.model) if failed and router and not exhausted else None
+                if hit and acct:
+                    router.mark_limited(acct.name, hit[2] or time.time() + 1800, text)
+                    tried.add(acct.name)
+                    nxt = router.next_account(None, self.role.model, acct.name)
+                    if nxt and nxt not in tried:
+                        log.info("account %s limited, retrying on %s", acct.name, nxt)
+                        continue
+                return text, result, acct, exhausted
+
         prompt = self._prompt(messages)
-        tried: set[str] = set()
-        while True:
-            acct = router.pick(None, self.role.model) if router else None
-            env = router.env_for(acct) if acct else {}
-            opts = ClaudeAgentOptions(
-                system_prompt=system, model=self.role.model, tools=[],
-                allowed_tools=[f"mcp__bot__{t['name']}" for t in tools or []],
-                mcp_servers={"bot": server}, setting_sources=[], cwd=str(self.cwd), env=env,
-                permission_mode="bypassPermissions", max_turns=MAX_TOOL_ROUNDS + 2,
-                effort=self.role.extra.get("effort"),
-            )
-            texts, result = [], None
-            async for msg in query(prompt=prompt, options=opts):
-                if isinstance(msg, AssistantMessage):
-                    texts.append("".join(b.text for b in msg.content if isinstance(b, TextBlock)))
-                elif isinstance(msg, ResultMessage):
-                    result = msg
-            text = (result.result if result and result.result else (texts[-1] if texts else "")).strip()
-            failed = result is None or result.is_error or (result.subtype or "success") != "success"
-            hit = router.classify_limit(text, self.role.model) if failed and router else None
-            if hit and acct:
-                router.mark_limited(acct.name, hit[2] or time.time() + 1800, text)
-                tried.add(acct.name)
-                nxt = router.next_account(None, self.role.model, acct.name)
-                if nxt and nxt not in tried:
-                    log.info("account %s limited, retrying on %s", acct.name, nxt)
-                    continue
-            if failed and not text:
-                text = f"(Claude Code error: {result.subtype if result else 'no result'})"
-            u = (result.usage or {}) if result else {}
-            usage = {"in": u.get("input_tokens", 0), "out": u.get("output_tokens", 0),
-                     "cache_read": u.get("cache_read_input_tokens", 0),
-                     "account": acct.name if acct else "host"}
-            return Result(text=text, usage=usage)
+        text, result, acct, exhausted = await attempt(prompt, True, max_turns)
+        if exhausted:
+            # Out of steps: answer from what was gathered instead of failing.
+            log.info("step limit (%d) reached; wrapping up from %d tool results", max_turns, len(findings))
+            notes, size = [], 0
+            for f in reversed(findings):
+                if size + len(f) > 40000:
+                    break
+                notes.insert(0, f)
+                size += len(f)
+            wrap = (prompt + "\n\n<work_so_far>\nYou already used these tools for this message:\n\n"
+                    + "\n\n".join(notes) + "\n</work_so_far>\n\nYou have run out of tool steps. Answer now "
+                    "from what you found, say clearly what is still unverified, and suggest what to look "
+                    "up next if it matters.")
+            text, result, acct, _ = await attempt(wrap, False, 2)
+        failed = result is None or result.is_error or (result.subtype or "success") != "success"
+        if failed and not text:
+            text = f"(Claude Code error: {result.subtype if result else 'no result'})"
+        u = (result.usage or {}) if result else {}
+        usage = {"in": u.get("input_tokens", 0), "out": u.get("output_tokens", 0),
+                 "cache_read": u.get("cache_read_input_tokens", 0),
+                 "account": acct.name if acct else "host"}
+        return Result(text=text, usage=usage)
 
 
 PROVIDERS = {"anthropic": AnthropicProvider, "openai": OpenAICompatProvider,
