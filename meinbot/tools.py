@@ -86,8 +86,9 @@ TOOLS = [
     },
     {
         "name": "web_fetch",
-        "description": f"Fetch a web page (or text/JSON URL) and return its readable text, "
-                       f"{WEB_PAGE_CHARS} characters at a time. Use `offset` to continue a long page.",
+        "description": f"Fetch a web page (or text/JSON URL) and return its readable text; JavaScript "
+                       f"pages are rendered in a headless browser automatically and list their links. Returns "
+                       f"{WEB_PAGE_CHARS} characters at a time; use `offset` to continue a long page.",
         "parameters": {
             "type": "object",
             "properties": {

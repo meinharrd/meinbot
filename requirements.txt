@@ -9,5 +9,6 @@ pyyaml
 httpx[http2]
 ddgs
 trafilatura
+playwright          # then: python -m playwright install chromium-headless-shell
 python-dotenv
 pytest

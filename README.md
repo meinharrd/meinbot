@@ -19,9 +19,10 @@ A personal assistant on Telegram whose memory belongs to you, not to a model ven
 - **Voice.** Voice notes are transcribed locally (faster-whisper) and answered
   with local TTS (piper).
 - **Web access.** `web_search` (DuckDuckGo, no key) and `web_fetch` (readable
-  text via trafilatura) run locally, so every vendor gets them. Requests to
-  private or loopback addresses are refused at every redirect, and page
-  content is marked as untrusted.
+  text via trafilatura, with headless Chromium for JavaScript pages) run
+  locally, so every vendor gets them. Requests to private or loopback
+  addresses are refused at every redirect and for every request a rendered
+  page makes, and page content is marked as untrusted.
 
 About 2,000 lines of Python. It is meant to be read and adapted.
 
@@ -124,6 +125,12 @@ scripts/setup_memory.sh git@github.com:you/your-private-memory.git   # encrypted
 .venv/bin/python -m meinbot ask "what do you know about me?"         # terminal test
 .venv/bin/python -m meinbot.eval                                     # memory eval
 .venv/bin/python -m meinbot                                          # run the bot
+```
+
+Headless browser for JavaScript pages:
+
+```bash
+.venv/bin/python -m playwright install chromium-headless-shell
 ```
 
 Voices for replies (English and German are configured in `audio.py`):
