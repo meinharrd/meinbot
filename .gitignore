@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.env
+state/
+# your own settings and local plugins stay out of the repo
+config.yaml
+local/

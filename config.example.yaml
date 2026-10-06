@@ -1,0 +1,47 @@
+# Everything that is not a secret. Secrets go in .env.
+owner_name: Robin                    # how the assistant refers to you
+memory_dir: ~/meinbot-memory
+timezone: Europe/Berlin
+
+models:
+  # The model that talks to you. Swap vendors by changing these lines.
+  # claude_code = Claude via the Claude Agent SDK on this machine's Claude Code
+  # login (a subscription, no API key). Needs the `claude` CLI logged in.
+  chat:
+    provider: claude_code           # claude_code | anthropic | openai (= any OpenAI-compatible API)
+    model: opus                     # Claude Code alias (= current Opus)
+    context_tokens: 60000           # size of the assembled context, not the model maximum
+    extra:
+      effort: medium
+  # Cheaper model for housekeeping (chat summaries).
+  memory:
+    provider: claude_code
+    model: haiku
+    context_tokens: 30000
+
+# Pay-per-token Claude API instead:
+#  chat:
+#    provider: anthropic
+#    model: claude-opus-5
+#    extra: {effort: medium, fallbacks: true}
+# Examples for other vendors (OpenAI-compatible):
+#  chat:
+#    provider: openai
+#    model: gpt-5
+#    extra: {max_tokens_param: max_completion_tokens}
+#  chat:
+#    provider: openai
+#    base_url: https://openrouter.ai/api/v1
+#    api_key_env: OPENROUTER_API_KEY
+#    model: google/gemini-3-pro
+#  chat:
+#    provider: openai
+#    base_url: http://localhost:11434/v1   # Ollama, fully local
+#    model: qwen3.6:27b
+
+recent_turns: 30          # raw messages kept verbatim in context
+summarize_every: 40       # fold older messages into the chat summary in batches of this size
+push_delay: 30            # seconds to batch commits before pushing
+pull_interval: 600        # seconds between pulls from the remote
+auto_apply_max: private   # memory updates up to this sensitivity apply directly (with undo);
+                          # above it (secret) they need a tap to confirm

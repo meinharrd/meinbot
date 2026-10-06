@@ -1,0 +1,16 @@
+# Adjust User and paths, then:
+#   sudo cp meinbot.service /etc/systemd/system/ && sudo systemctl enable --now meinbot
+[Unit]
+Description=meinbot personal assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/meinbot
+ExecStart=/home/YOUR_USER/meinbot/.venv/bin/python -m meinbot
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

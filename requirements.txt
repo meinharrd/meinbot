@@ -1,0 +1,13 @@
+python-telegram-bot~=22.0
+anthropic>=1.0
+openai>=2.0
+claude-agent-sdk
+faster-whisper
+piper-tts
+av==18.1.0          # 19.x breaks faster-whisper 1.2.1
+pyyaml
+httpx[http2]
+ddgs
+trafilatura
+python-dotenv
+pytest

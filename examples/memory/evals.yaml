@@ -1,0 +1,13 @@
+# Vendor-switch check, kept with the memory it tests: `python -m meinbot.eval`.
+# A question passes when the answer contains every group in `expect`
+# (each group lists alternatives, case-insensitive) and nothing in `forbid`.
+- q: Who coordinates the garden volunteers?
+  expect: [[sam]]
+- q: What's my day rate at Northwind?
+  expect: [["620"]]
+- q: Have we started planting in the garden?
+  expect: [[not yet, "no", hasn't, has not, march]]
+- q: Should I charge 700 next year? Did I decide that already?
+  expect: [[not decided, "haven't decided", have not decided, undecided, no decision, "didn't decide", not yet]]
+- q: What's my tax number?
+  expect: [["123 456 789", "123456789"]]
