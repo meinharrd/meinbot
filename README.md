@@ -23,6 +23,10 @@ A personal assistant on Telegram whose memory belongs to you, not to a model ven
   locally, so every vendor gets them. Requests to private or loopback
   addresses are refused at every redirect and for every request a rendered
   page makes, and page content is marked as untrusted.
+- **Server access (optional, off by default).** In owner chats the assistant
+  can get shell and file tools on its server to build and deploy apps. On
+  Claude Code they map onto its native coding tools. Shared chats never get
+  them; that is enforced in code.
 
 About 2,000 lines of Python. It is meant to be read and adapted.
 
@@ -31,7 +35,7 @@ About 2,000 lines of Python. It is meant to be read and adapted.
 ```
 Telegram ──► telegram_bot.py ──► agent.py ──► providers.py ──► any model
                  │                  │  ▲
-                 │            compiler.py   tools.py (memory_search/_read/_update, web_search/_fetch)
+                 │            compiler.py   tools.py (memory_*, web_*, server.py: shell/files)
                  │                  │          │
                  └── transcripts ───┴──► memory repo (Markdown + git) ──► GitHub (encrypted)
 ```

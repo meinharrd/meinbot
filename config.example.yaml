@@ -45,3 +45,9 @@ push_delay: 30            # seconds to batch commits before pushing
 pull_interval: 600        # seconds between pulls from the remote
 auto_apply_max: private   # memory updates up to this sensitivity apply directly (with undo);
                           # above it (secret) they need a tap to confirm
+
+# Shell and file access to this server in owner chats (DM, owner groups) only,
+# so the assistant can build and deploy apps. Never offered in shared chats.
+server_access:
+  enabled: false
+  workspace: ~/apps         # where new projects go

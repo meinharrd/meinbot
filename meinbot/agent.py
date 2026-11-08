@@ -2,7 +2,7 @@
 import logging
 from dataclasses import dataclass
 
-from . import compiler, providers, tools
+from . import compiler, providers, server, tools
 from .chats import Chats, ChatState, Transcripts
 from .config import Config
 from .gitsync import GitSync
@@ -35,6 +35,8 @@ class Assistant:
         self.transcripts = Transcripts(cfg.memory_dir)
         self.chat_model = providers.make(cfg.chat)
         self.memory_model = providers.make(cfg.memory)
+        if hasattr(self.chat_model, "workspace"):
+            self.chat_model.workspace = cfg.workspace
 
     async def respond(self, state: ChatState, scope: Scope, info: compiler.ChatInfo,
                       history: list[dict], dry_run: bool = False) -> Reply:
@@ -42,13 +44,19 @@ class Assistant:
         system, messages = compiler.build(
             self.store, self.index, state, scope, info, history,
             budget=role.context_tokens, timezone=self.cfg.timezone, recent_turns=self.cfg.recent_turns)
+        # Server access only in owner chats, decided here in code, never by the model.
+        server_on = self.cfg.server_access and scope.owner and not dry_run
+        if server_on:
+            self.cfg.workspace.mkdir(parents=True, exist_ok=True)
+            system += "\n\n" + server.system_note(self.cfg.workspace).replace("{owner}", self.cfg.owner_name)
         ctx = tools.ToolContext(self.store, self.index, self.git, self.pending, scope, state.key,
-                                auto_apply_max=self.cfg.auto_apply_max, dry_run=dry_run)
-        tool_defs = tools.TOOLS if role.tools else None
+                                auto_apply_max=self.cfg.auto_apply_max, dry_run=dry_run,
+                                workspace=self.cfg.workspace if server_on else None)
+        tool_defs = (tools.TOOLS + (server.TOOLS if server_on else [])) if role.tools else None
 
         async def execute(name: str, args: dict):
             out, is_err = await tools.execute(name, args, ctx)
-            log.info("tool %s %s -> %s", name, args, out[:120])
+            log.info("tool %s %s -> %s", name, str(args)[:300], out[:120].replace("\n", " "))
             return out, is_err
 
         res = await self.chat_model.run(system, messages, tool_defs, execute)

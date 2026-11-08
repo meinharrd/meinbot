@@ -37,6 +37,8 @@ class Config:
     push_delay: int
     pull_interval: int
     auto_apply_max: str
+    server_access: bool = False       # shell/file tools in owner chats
+    workspace: Path = Path.home() / "apps"
 
 
 def _role(d: dict) -> ModelRole:
@@ -61,4 +63,6 @@ def load(path: Path | None = None) -> Config:
         push_delay=raw.get("push_delay", 30),
         pull_interval=raw.get("pull_interval", 600),
         auto_apply_max=raw.get("auto_apply_max", "private"),
+        server_access=bool((raw.get("server_access") or {}).get("enabled", False)),
+        workspace=Path((raw.get("server_access") or {}).get("workspace", "~/apps")).expanduser(),
     )

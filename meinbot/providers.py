@@ -51,6 +51,9 @@ class Result:
 # executor(tool_name, args) -> (result text, is_error)
 Executor = Callable[[str, dict], Awaitable[tuple[str, bool]]]
 MAX_TOOL_ROUNDS = 30
+# Claude Code's native tools used when a chat has server access.
+CODING_TOOLS = ["Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "TodoWrite"]
+CODING_EQUIVALENTS = {"shell", "read_file", "write_file"}
 
 
 class Provider:
@@ -228,6 +231,7 @@ class ClaudeCodeProvider(Provider):
         self.cwd = Path(role.extra.get("cwd", STATE_DIR / "claude-code"))
         self.cwd.mkdir(parents=True, exist_ok=True)
         self.router = _load_module(role.extra["router"]) if role.extra.get("router") else None
+        self.workspace: Path | None = None     # set by the agent when server access is on
 
     @staticmethod
     def _prompt(messages: list[dict]) -> str:
@@ -257,10 +261,16 @@ class ClaudeCodeProvider(Provider):
                 return {"content": [{"type": "text", "text": out}], "isError": is_err}
             return h
 
+        # Server access (shell/read_file/write_file) maps onto Claude Code's own coding tools.
+        coding = any(t["name"] == "shell" for t in tools or [])
+        own = [t for t in tools or [] if t["name"] not in CODING_EQUIVALENTS]
+        native = CODING_TOOLS if coding else []
         sdk_tools = [SdkMcpTool(t["name"], t["description"], t["parameters"], handler(t["name"]))
-                     for t in tools or []]
+                     for t in own]
         server = create_sdk_mcp_server(name="bot", version="1.0.0", tools=sdk_tools)
-        max_turns = self.role.extra.get("max_turns", MAX_TOOL_ROUNDS)
+        max_turns = self.role.extra.get("max_turns_coding", 300) if coding else \
+            self.role.extra.get("max_turns", MAX_TOOL_ROUNDS)
+        cwd = str(self.workspace) if coding and self.workspace else str(self.cwd)
 
         async def attempt(prompt: str, with_tools: bool, turns: int):
             """One query; returns (text, result, account, hit the step limit)."""
@@ -269,10 +279,10 @@ class ClaudeCodeProvider(Provider):
                 acct = router.pick(None, self.role.model) if router else None
                 env = router.env_for(acct) if acct else {}
                 opts = ClaudeAgentOptions(
-                    system_prompt=system, model=self.role.model, tools=[],
-                    allowed_tools=[f"mcp__bot__{t['name']}" for t in tools or []] if with_tools else [],
+                    system_prompt=system, model=self.role.model, tools=native if with_tools else [],
+                    allowed_tools=([f"mcp__bot__{t['name']}" for t in own] + native) if with_tools else [],
                     mcp_servers={"bot": server} if with_tools else {}, setting_sources=[],
-                    cwd=str(self.cwd), env=env, permission_mode="bypassPermissions",
+                    cwd=cwd, env=env, permission_mode="bypassPermissions",
                     max_turns=turns, effort=self.role.extra.get("effort"),
                 )
                 texts, result, exhausted = [], None, False

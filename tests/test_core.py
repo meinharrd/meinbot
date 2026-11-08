@@ -142,3 +142,19 @@ def test_web_refuses_private_addresses():
                 "http://10.0.0.1/", "file:///etc/passwd"):
         with pytest.raises(web.WebError):
             asyncio.run(web.fetch(url))
+
+
+def test_server_tools_only_in_owner_chats(mem, tmp_path):
+    from meinbot import server
+    ctx = tools.ToolContext(Store(mem), None, None, None, Scope(owner=False), "g", workspace=tmp_path)
+    out, err = asyncio.run(tools.execute("shell", {"command": "echo hi"}, ctx))
+    assert err and "not available" in out
+    ctx = tools.ToolContext(Store(mem), None, None, None, Scope(owner=True), "dm", workspace=None)
+    assert asyncio.run(tools.execute("shell", {"command": "echo hi"}, ctx))[1]
+    ctx.workspace = tmp_path
+    out, err = asyncio.run(tools.execute("shell", {"command": "echo hi && pwd"}, ctx))
+    assert not err and "hi" in out and str(tmp_path) in out
+    assert asyncio.run(tools.execute("write_file", {"path": "a/b.txt", "content": "x"}, ctx)) == \
+        (f"wrote 1 characters to {tmp_path}/a/b.txt", False)
+    out = asyncio.run(server.shell("sleep 5", tmp_path, timeout=1))
+    assert "killed" in out

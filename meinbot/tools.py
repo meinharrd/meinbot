@@ -5,7 +5,7 @@ import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import web
+from . import server, web
 from .gitsync import GitSync
 from .memory import LEVELS, MemoryError_, Scope, Store, level_of
 from .search import Index
@@ -143,6 +143,7 @@ class ToolContext:
     chat_key: str
     auto_apply_max: str = "private"
     dry_run: bool = False
+    workspace: Path | None = None       # set only when server access is allowed in this chat
     notes: list[Note] = field(default_factory=list)
 
 
@@ -201,6 +202,13 @@ async def execute(name: str, args: dict, ctx: ToolContext) -> tuple[str, bool]:
             more = (f"\n[{len(text) - end} more characters; call web_fetch with offset={end}]"
                     if end < len(text) else "")
             return f"{UNTRUSTED}\n<web_page url=\"{final}\">\n{part}\n</web_page>{more}", False
+
+        if name in server.NAMES:
+            if ctx.workspace is None or not ctx.scope.owner:
+                return "Server access is not available in this chat.", True
+            if ctx.dry_run:
+                return "Dry run: server tools are disabled.", True
+            return await server.execute(name, args, ctx.workspace)
 
         return f"Unknown tool {name}", True
     except web.WebError as e:
